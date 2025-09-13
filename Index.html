@@ -84,6 +84,9 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', (event) => {
+            // !!! QUAN TRỌNG: Dán URL ứng dụng web Apps Script của bạn vào đây
+            const APPS_SCRIPT_URL = 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE';
+
             const resultDiv = document.getElementById('result');
             const scannedList = document.getElementById('scanned-list');
             let lastScannedCode = null;
@@ -95,16 +98,13 @@
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     const oscillator = audioContext.createOscillator();
                     const gainNode = audioContext.createGain();
-
                     oscillator.connect(gainNode);
                     gainNode.connect(audioContext.destination);
-
-                    gainNode.gain.value = 0.1; // Giảm âm lượng để không quá chói tai
-                    oscillator.frequency.value = 880; // Tần số của nốt La (A5)
-                    oscillator.type = 'sine'; // Loại sóng âm
-
+                    gainNode.gain.value = 0.1;
+                    oscillator.frequency.value = 880;
+                    oscillator.type = 'sine';
                     oscillator.start();
-                    setTimeout(() => oscillator.stop(), 100); // Phát trong 100ms
+                    setTimeout(() => oscillator.stop(), 100);
                 } catch (e) {
                     console.error("Không thể phát âm thanh:", e);
                 }
@@ -123,45 +123,65 @@
             }
 
             // Hàm được gọi khi quét mã thành công
-            function onScanSuccess(decodedText, decodedResult) {
-                // Chỉ xử lý nếu mã mới khác với mã cuối cùng và không đang trong quá trình xử lý
+            async function onScanSuccess(decodedText, decodedResult) {
                 if (isProcessing || decodedText === lastScannedCode) {
                     return;
                 }
                 
+                if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE') {
+                    showStatus('Lỗi: Chưa cấu hình URL của Apps Script!', 'error');
+                    return;
+                }
+
                 isProcessing = true;
                 lastScannedCode = decodedText;
                 
                 playBeep();
-                showStatus(`Đang xử lý: ${decodedText}`, 'processing');
+                showStatus(`Đang gửi mã: ${decodedText}`, 'processing');
 
-                // Gọi hàm phía server Apps Script để xử lý mã
-                google.script.run
-                    .withSuccessHandler(onServerSuccess)
-                    .withFailureHandler(onServerFailure)
-                    .processBarcode(decodedText);
+                // **THAY ĐỔI: Sử dụng fetch để gửi dữ liệu đến Apps Script Web App**
+                try {
+                    const response = await fetch(APPS_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'cors', // Cần thiết cho các yêu cầu từ tên miền khác
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ code: decodedText }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Lỗi HTTP: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        onServerSuccess(result.message);
+                    } else {
+                        onServerFailure({ message: result.message });
+                    }
+
+                } catch (error) {
+                    onServerFailure(error);
+                }
             }
             
-            // Xử lý khi server Apps Script trả về thành công
             function onServerSuccess(responseMessage) {
                 showStatus(responseMessage, 'success');
                 addToList(lastScannedCode);
                 resetScannerState();
             }
 
-            // Xử lý khi gọi server Apps Script thất bại
             function onServerFailure(error) {
                 showStatus(`Lỗi: ${error.message}`, 'error');
                 resetScannerState();
             }
 
-            // Đặt lại trạng thái để có thể quét mã tiếp theo
             function resetScannerState() {
-                // Đợi 2 giây trước khi cho phép quét lại mã giống hệt
                 setTimeout(() => {
                     lastScannedCode = null; 
                     isProcessing = false;
-                    // Quay lại trạng thái chờ quét sau khi hiển thị kết quả một lúc
                     setTimeout(() => {
                         if (!isProcessing) {
                            showStatus('Sẵn sàng quét...', 'info');
@@ -170,13 +190,9 @@
                 }, 2000);
             }
 
-            // Thêm mã đã quét vào danh sách lịch sử
             function addToList(code) {
-                // Xóa thông báo "chưa có mã nào" nếu có
                 const placeholder = scannedList.querySelector('.text-gray-500');
-                if (placeholder) {
-                    placeholder.remove();
-                }
+                if (placeholder) placeholder.remove();
 
                 const li = document.createElement('li');
                 li.className = 'text-green-400 p-2 border-b border-gray-700';
@@ -194,16 +210,13 @@
                 scannedList.prepend(li);
             }
             
-            // Cấu hình trình quét
             const html5Qrcode = new Html5Qrcode("reader");
             const config = { 
                 fps: 10, 
                 qrbox: { width: 250, height: 250 },
-                // Chỉ quét bằng camera sau, tối ưu cho điện thoại
                 facingMode: "environment" 
             };
 
-            // Bắt đầu quét
             html5Qrcode.start({ facingMode: "environment" }, config, onScanSuccess)
                 .then(() => {
                      showStatus('Sẵn sàng quét...', 'info');
@@ -216,3 +229,4 @@
     </script>
 </body>
 </html>
+
